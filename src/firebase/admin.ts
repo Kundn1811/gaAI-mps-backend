@@ -7,6 +7,7 @@ const serviceAccount = require(path.resolve(__dirname, '../../firebase-service-a
 if(!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
+    projectId: 'gaaih-mps-backed' 
   });
 }
 export default admin;
