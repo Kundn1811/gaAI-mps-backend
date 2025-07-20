@@ -62,3 +62,4 @@ notificationHistorySchema.index({ type: 1, createdAt: -1 });
 
 
 const NotificationHistory = mongoose.model('NotificationHistory', notificationHistorySchema);
+export default NotificationHistory;

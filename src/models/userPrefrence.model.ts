@@ -45,3 +45,6 @@ userPreferencesSchema.pre('save', function(next) {
   this.updatedAt = new Date();
   next();
 });
+
+const UserPreferences = mongoose.model('UserPreferences', userPreferencesSchema);
+export default UserPreferences;
