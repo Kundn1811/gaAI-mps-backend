@@ -12,9 +12,9 @@ const startServer = async (): Promise<void> => {
   } catch (error) {
     console.error('Database connection failed, but starting server anyway:', error);
   }
-  
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8080;
-  
+
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8099;
+
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
   });

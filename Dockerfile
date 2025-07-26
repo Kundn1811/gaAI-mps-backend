@@ -1,5 +1,4 @@
-# Build stage
-FROM node:20-alpine AS builder
+FROM node:20-alpine
 
 WORKDIR /app
 
@@ -9,31 +8,21 @@ COPY package*.json ./
 # Install all dependencies
 RUN npm ci
 
+# Copy firebase config file
+COPY firebase-service-account.json ./firebase-service-account.json
+
+
 # Copy source code
 COPY . .
 
 # Build the application
 RUN npm run build
 
-# Production stage
-FROM node:20-alpine AS production
-
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-
-# Install only production dependencies
-RUN npm ci --only=production && npm cache clean --force
-
-# Copy built application from builder stage
-COPY --from=builder /app/dist ./dist
-
-# Copy any other necessary files (like config files if needed)
-# COPY --from=builder /app/public ./public  # if you have static files
+# Remove dev dependencies after build
+RUN npm prune --production
 
 # Expose port
-EXPOSE 8080
+EXPOSE 8099
 
 # Start the application
 CMD ["npm", "start"]
