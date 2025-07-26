@@ -1,16 +1,26 @@
 import express, { Request, Response } from 'express';
-import dotenv from 'dotenv'
-import notificationRoutes from './routes/notification.routes'
+import dotenv from 'dotenv';
 dotenv.config();
+
 import app from './app';
+import connectDB from './config';
 
-const PORT = process.env.PORT || 5000;
+const startServer = async (): Promise<void> => {
+  try {
+    await connectDB();
+    console.log('Database connected successfully');
+  } catch (error) {
+    console.error('Database connection failed, but starting server anyway:', error);
+  }
+  
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8080;
+  
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+};
 
-
-app.get('/', (req: Request, res: Response) => {
-  res.send('Hello There! Server is up and working');
-});
-
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+startServer().catch(error => {
+  console.error('Failed to start server:', error);
+  process.exit(1);
 });
