@@ -1,0 +1,682 @@
+// Social Posting Backend API - MongoDB TypeScript
+import express, { Request, Response, NextFunction } from 'express';
+import multer, { MulterError } from 'multer';
+// import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import mongoose, { Schema, Document, Types } from 'mongoose';
+import jwt, { JwtPayload } from 'jsonwebtoken';
+import bcrypt from 'bcrypt';
+import cors from 'cors';
+import { uploadFileToGCP } from '../utils/gcpUploader';
+
+const app = express();
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+
+// Types and Interfaces
+interface IUser extends Document {
+  _id: Types.ObjectId;
+  username: string;
+  email: string;
+  passwordHash: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface IMediaFile {
+  url: string;
+  type: string;
+  fileName: string;
+}
+
+interface IPost extends Document {
+  _id: Types.ObjectId;
+  userId: Types.ObjectId;
+  content: string;
+  type: 'text' | 'image' | 'video' | 'mixed';
+  media: IMediaFile[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface IVote extends Document {
+  _id: Types.ObjectId;
+  userId: Types.ObjectId;
+  postId: Types.ObjectId;
+  voteType: 'up' | 'down';
+  createdAt: Date;
+}
+
+interface PostWithDetails extends IPost {
+  username: string;
+  upvotes: number;
+  downvotes: number;
+  score: number;
+  userUpvoted: boolean;
+  userDownvoted: boolean;
+}
+
+export interface AuthRequest extends Request {
+  user?: {
+    userId: string;
+    username: string;
+  };
+}
+
+interface RegisterRequest {
+  username: string;
+  email: string;
+  password: string;
+}
+
+interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+interface CreatePostRequest {
+  content: string;
+  type?: 'text' | 'image' | 'video' | 'mixed';
+}
+
+interface VoteRequest {
+  voteType: 'up' | 'down';
+}
+
+interface PaginationQuery {
+  page?: string;
+  limit?: string;
+  sortBy?: 'createdAt' | 'score';
+}
+
+// MongoDB Schemas
+const userSchema = new Schema<IUser>({
+  username: { type: String, required: true, unique: true, trim: true },
+  email: { type: String, required: true, unique: true, lowercase: true },
+  passwordHash: { type: String, required: true },
+}, { 
+  timestamps: true,
+  versionKey: false 
+});
+
+const mediaFileSchema = new Schema<IMediaFile>({
+  url: { type: String, required: true },
+  type: { type: String, required: true },
+  fileName: { type: String, required: true }
+}, { _id: false });
+
+const postSchema = new Schema<IPost>({
+  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  content: { type: String, required: true },
+  type: { type: String, enum: ['text', 'image', 'video', 'mixed'], default: 'text' },
+  media: [mediaFileSchema],
+}, { 
+  timestamps: true,
+  versionKey: false 
+});
+
+const voteSchema = new Schema<IVote>({
+  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  postId: { type: Schema.Types.ObjectId, ref: 'Post', required: true },
+  voteType: { type: String, enum: ['up', 'down'], required: true },
+}, { 
+  timestamps: true,
+  versionKey: false 
+});
+
+// Create compound index for unique user-post vote combination
+voteSchema.index({ userId: 1, postId: 1 }, { unique: true });
+
+// Models
+const User = mongoose.model<IUser>('User', userSchema);
+const Post = mongoose.model<IPost>('Post', postSchema);
+const Vote = mongoose.model<IVote>('Vote', voteSchema);
+
+// AWS S3 Configuration
+// const s3Client = new S3Client({
+//   region: process.env.AWS_REGION!,
+//   credentials: {
+//     accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+//     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+//   },
+// });
+
+//gcp bucket configuration
+// const gcpStorage = new Storage({
+//   projectId: process.env.GCP_PROJECT_ID!,
+//   keyFilename: process.env.GCP_KEY_FILE!
+// });
+// const bucket = gcpStorage.bucket(process.env.GCP_BUCKET_NAME!);
+
+
+// Multer configuration for file uploads
+// const storage = multer.memoryStorage();
+// const upload = multer({
+//   storage: storage,
+//   limits: {
+//     fileSize: 50 * 1024 * 1024, // 50MB limit
+//   },
+//   fileFilter: (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+//     // Allow images and videos
+//     if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')) {
+//       cb(null, true);
+//     } else {
+//       cb(new Error('Only image and video files are allowed'));
+//     }
+//   }
+// });
+
+
+// User Registration
+export const register = async (req: Request<{}, {}, RegisterRequest>, res: Response): Promise<void> => {
+  try {
+    const { username, email, password } = req.body;
+    
+    // Check if user already exists
+    const existingUser = await User.findOne({ 
+      $or: [{ email }, { username }] 
+    });
+    
+    if (existingUser) {
+      res.status(400).json({ error: 'Username or email already exists' });
+      return;
+    }
+    
+    // Hash password
+    const saltRounds = 10;
+    const passwordHash = await bcrypt.hash(password, saltRounds);
+    
+    // Create user
+    const user = new User({
+      username,
+      email,
+      passwordHash
+    });
+    
+    const savedUser = await user.save();
+    
+    res.status(201).json({ 
+      message: 'User registered successfully',
+      userId: savedUser._id 
+    });
+  } catch (error: any) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Registration failed' });
+  }
+};
+
+
+// User Login - convert this api into controller function
+// This function handles user login, validates credentials, and returns a JWT token.
+export const login = async (req: Request<{}, {}, LoginRequest>, res: Response): Promise<void> => {
+  try {
+    const { email, password } = req.body;
+    
+    const user = await User.findOne({ email });
+    
+    if (!user) {
+      res.status(401).json({ error: 'Invalid credentials' });
+      return;
+    }
+    
+    const isValidPassword = await bcrypt.compare(password, user.passwordHash);
+    
+    if (!isValidPassword) {
+      res.status(401).json({ error: 'Invalid credentials' });
+      return;
+    }
+    
+    const token = jwt.sign(
+      { userId: user._id.toString(), username: user.username },
+      process.env.JWT_SECRET!,
+      { expiresIn: '24h' }
+    );
+    
+    res.json({
+      token,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email
+      }
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Login failed' });
+  }
+};
+
+// Create Post (with file upload)
+export const post = async (req: AuthRequest, res: Response): Promise<void> => {
+  const session = await mongoose.startSession();
+  
+  try {
+    session.startTransaction();
+    
+    const { content, type = 'text' }: CreatePostRequest = req.body;
+    const userId = req.user!.userId;
+    
+    // Handle file uploads if any
+    const media: IMediaFile[] = [];
+    if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+      for (const file of req.files) {
+        const fileName = `posts/${Date.now()}-${file.originalname}`;
+        const fileUrl = await uploadFileToGCP(file, fileName);
+        
+        media.push({
+          url: fileUrl,
+          type: file.mimetype,
+          fileName: file.originalname
+        });
+      }
+    }
+    
+    // Create post
+    const post = new Post({
+      userId: new Types.ObjectId(userId),
+      content,
+      type: media.length > 0 ? (media.length > 1 ? 'mixed' : (media[0].type.startsWith('image/') ? 'image' : 'video')) : type,
+      media
+    });
+    
+    const savedPost = await post.save({ session });
+    
+    await session.commitTransaction();
+    
+    res.status(201).json({
+      message: 'Post created successfully',
+      postId: savedPost._id
+    });
+    
+  } catch (error) {
+    await session.abortTransaction();
+    console.error('Post creation error:', error);
+    res.status(500).json({ error: 'Failed to create post' });
+  } finally {
+    await session.endSession();
+  }
+};
+
+// Get Posts Feed (with pagination)
+export const getPost =  async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { page = '1', limit = '20', sortBy = 'createdAt' } = req.query;
+    const userId = req.user!.userId;
+    
+    const pageNum = parseInt(page as string);
+    const limitNum = parseInt(limit as string);
+    const skip = (pageNum - 1) * limitNum;
+    
+    // Build aggregation pipeline
+    const pipeline: mongoose.PipelineStage[] = [
+      // Lookup user information
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'userId',
+          foreignField: '_id',
+          as: 'user'
+        }
+      },
+      { $unwind: '$user' },
+      
+      // Lookup votes
+      {
+        $lookup: {
+          from: 'votes',
+          localField: '_id',
+          foreignField: 'postId',
+          as: 'votes'
+        }
+      },
+      
+      // Add calculated fields
+      {
+        $addFields: {
+          upvotes: {
+            $size: {
+              $filter: {
+                input: '$votes',
+                cond: { $eq: ['$$this.voteType', 'up'] }
+              }
+            }
+          },
+          downvotes: {
+            $size: {
+              $filter: {
+                input: '$votes',
+                cond: { $eq: ['$$this.voteType', 'down'] }
+              }
+            }
+          },
+          userUpvoted: {
+            $anyElementTrue: [
+              {
+                $map: {
+                  input: '$votes',
+                  as: 'vote',
+                  in: {
+                    $and: [
+                      { $eq: ['$$vote.userId', new Types.ObjectId(userId)] },
+                      { $eq: ['$$vote.voteType', 'up'] }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          userDownvoted: {
+            $anyElementTrue: [
+              {
+                $map: {
+                  input: '$votes',
+                  as: 'vote',
+                  in: {
+                    $and: [
+                      { $eq: ['$$vote.userId', new Types.ObjectId(userId)] },
+                      { $eq: ['$$vote.voteType', 'down'] }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      
+      // Add score field
+      {
+        $addFields: {
+          score: { $subtract: ['$upvotes', '$downvotes'] }
+        }
+      }
+    ];
+
+    // Add sort stage based on sortBy
+    if (sortBy === 'score') {
+      pipeline.push({ $sort: { score: -1, createdAt: -1 } });
+    } else {
+      pipeline.push({ $sort: { createdAt: -1 } });
+    }
+
+    // Pagination
+    pipeline.push({ $skip: skip });
+    pipeline.push({ $limit: limitNum });
+
+    // Project final fields
+    pipeline.push({
+      $project: {
+        _id: 1,
+        content: 1,
+        type: 1,
+        media: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        username: '$user.username',
+        userId: '$user._id',
+        upvotes: 1,
+        downvotes: 1,
+        score: 1,
+        userUpvoted: 1,
+        userDownvoted: 1,
+        votes: 0,
+        user: 0
+      }
+    });
+
+    const posts = await Post.aggregate(pipeline);
+
+    
+    res.json({
+      posts,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        hasMore: posts.length === limitNum
+      }
+    });
+    
+  } catch (error) {
+    console.error('Feed fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch posts' });
+  }
+};
+
+// Vote on Post
+export const voteOnPost = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { postId } = req.params;
+    const { voteType } = req.body;
+    const userId = req.user!.userId;
+    
+    if (!['up', 'down'].includes(voteType)) {
+      res.status(400).json({ error: 'Invalid vote type' });
+      return;
+    }
+    
+    if (!Types.ObjectId.isValid(postId)) {
+      res.status(400).json({ error: 'Invalid post ID' });
+      return;
+    }
+    
+    // Check if post exists
+    const post = await Post.findById(postId);
+    if (!post) {
+      res.status(404).json({ error: 'Post not found' });
+      return;
+    }
+    
+    // Check if user already voted
+    const existingVote = await Vote.findOne({
+      userId: new Types.ObjectId(userId),
+      postId: new Types.ObjectId(postId)
+    });
+    
+    if (existingVote) {
+      if (existingVote.voteType === voteType) {
+        // Remove vote if clicking same vote type
+        await Vote.findByIdAndDelete(existingVote._id);
+        res.json({ message: 'Vote removed' });
+      } else {
+        // Update vote type
+        existingVote.voteType = voteType;
+        await existingVote.save();
+        res.json({ message: 'Vote updated' });
+      }
+    } else {
+      // Create new vote
+      const vote = new Vote({
+        userId: new Types.ObjectId(userId),
+        postId: new Types.ObjectId(postId),
+        voteType
+      });
+      
+      await vote.save();
+      res.json({ message: 'Vote added' });
+    }
+    
+  } catch (error) {
+    console.error('Voting error:', error);
+    res.status(500).json({ error: 'Failed to process vote' });
+  }
+};
+
+// Get Single Post
+export const getSinglePost =  async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { postId } = req.params;
+    const userId = req.user!.userId;
+    
+    if (!Types.ObjectId.isValid(postId)) {
+      res.status(400).json({ error: 'Invalid post ID' });
+      return;
+    }
+    
+    const pipeline = [
+      { $match: { _id: new Types.ObjectId(postId) } },
+      
+      // Lookup user information
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'userId',
+          foreignField: '_id',
+          as: 'user'
+        }
+      },
+      { $unwind: '$user' },
+      
+      // Lookup votes
+      {
+        $lookup: {
+          from: 'votes',
+          localField: '_id',
+          foreignField: 'postId',
+          as: 'votes'
+        }
+      },
+      
+      // Add calculated fields
+      {
+        $addFields: {
+          upvotes: {
+            $size: {
+              $filter: {
+                input: '$votes',
+                cond: { $eq: ['$$this.voteType', 'up'] }
+              }
+            }
+          },
+          downvotes: {
+            $size: {
+              $filter: {
+                input: '$votes',
+                cond: { $eq: ['$$this.voteType', 'down'] }
+              }
+            }
+          },
+          userUpvoted: {
+            $anyElementTrue: [
+              {
+                $map: {
+                  input: '$votes',
+                  as: 'vote',
+                  in: {
+                    $and: [
+                      { $eq: ['$$vote.userId', new Types.ObjectId(userId)] },
+                      { $eq: ['$$vote.voteType', 'up'] }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          userDownvoted: {
+            $anyElementTrue: [
+              {
+                $map: {
+                  input: '$votes',
+                  as: 'vote',
+                  in: {
+                    $and: [
+                      { $eq: ['$$vote.userId', new Types.ObjectId(userId)] },
+                      { $eq: ['$$vote.voteType', 'down'] }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      
+      // Add score field
+      {
+        $addFields: {
+          score: { $subtract: ['$upvotes', '$downvotes'] }
+        }
+      },
+      
+      // Project final fields
+      {
+        $project: {
+          _id: 1,
+          content: 1,
+          type: 1,
+          media: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          username: '$user.username',
+          userId: '$user._id',
+          upvotes: 1,
+          downvotes: 1,
+          score: 1,
+          userUpvoted: 1,
+          userDownvoted: 1
+        }
+      }
+    ];
+    
+    const posts = await Post.aggregate(pipeline);
+    
+    if (posts.length === 0) {
+      res.status(404).json({ error: 'Post not found' });
+      return;
+    }
+    
+    res.json(posts[0]);
+    
+  } catch (error) {
+    console.error('Post fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch post' });
+  }
+};
+
+// Delete Post (only by owner)
+export const deletePost =  async (req: AuthRequest, res: Response): Promise<void> => {
+  const session = await mongoose.startSession();
+  
+  try {
+    session.startTransaction();
+    
+    const { postId } = req.params;
+    const userId = req.user!.userId;
+    
+    if (!Types.ObjectId.isValid(postId)) {
+      res.status(400).json({ error: 'Invalid post ID' });
+      return;
+    }
+    
+    // Check if user owns the post
+    const post = await Post.findById(postId).session(session);
+    
+    if (!post) {
+      res.status(404).json({ error: 'Post not found' });
+      return;
+    }
+    
+    if (post.userId.toString() !== userId) {
+      res.status(403).json({ error: 'Not authorized to delete this post' });
+      return;
+    }
+    
+    // Delete related votes
+    await Vote.deleteMany({ postId: new Types.ObjectId(postId) }).session(session);
+    
+    // Delete the post
+    await Post.findByIdAndDelete(postId).session(session);
+    
+    await session.commitTransaction();
+    res.json({ message: 'Post deleted successfully' });
+    
+  } catch (error) {
+    await session.abortTransaction();
+    console.error('Post deletion error:', error);
+    res.status(500).json({ error: 'Failed to delete post' });
+  } finally {
+    await session.endSession();
+  }
+};
+
