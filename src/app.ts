@@ -1,5 +1,6 @@
 import express, { Request, Response, NextFunction } from 'express';
-import notificationRouter from './routes/notification.routes'
+import cors from 'cors';  // Import CORS
+import notificationRouter from './routes/notification.routes';
 import fcmRouter from './routes/fcm.routes';
 import logger from './middleware/logger.middleware';
 import { globalErrorHandler } from './middleware/error.middleware';
@@ -8,8 +9,11 @@ import userPostRoutes from './routes/userPost.routes';
 
 const app = express();
 
+// CORS middleware to allow all origins
+app.use(cors());  // This will allow all origins
+  
 // Logging middleware
-app.use(logger);
+app.use(logger);  
 app.use(express.json());
 
 // Routes
