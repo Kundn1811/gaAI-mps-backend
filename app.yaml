@@ -1,0 +1,7 @@
+runtime: nodejs20 # Specify the Node.js version
+env: standard
+
+entrypoint: npm start
+
+env_variables:
+  NODE_ENV: 'production' # Set production environment variables
