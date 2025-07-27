@@ -14,6 +14,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+interface IGeoPoint {
+  latitude: number;
+  longitude: number;
+}
 
 // Types and Interfaces
 interface IUser extends Document {
@@ -21,6 +25,8 @@ interface IUser extends Document {
   username: string;
   email: string;
   passwordHash: string;
+  startPoint: IGeoPoint;
+  endPoint: IGeoPoint;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -71,6 +77,8 @@ interface RegisterRequest {
   username: string;
   email: string;
   password: string;
+  startPoint: IGeoPoint;
+  endPoint: IGeoPoint;
 }
 
 interface LoginRequest {
@@ -101,6 +109,14 @@ const userSchema = new Schema<IUser>({
   username: { type: String, required: true, unique: true, trim: true },
   email: { type: String, required: true, unique: true, lowercase: true },
   passwordHash: { type: String, required: true },
+  startPoint: {
+    latitude: { type: Number, required: true },
+    longitude: { type: Number, required: true }
+  },
+  endPoint: {
+    latitude: { type: Number, required: true },
+    longitude: { type: Number, required: true }
+  }
 }, { 
   timestamps: true,
   versionKey: false 
@@ -179,8 +195,8 @@ const Vote = mongoose.model<IVote>('Vote', voteSchema);
 // User Registration
 export const register = async (req: Request<{}, {}, RegisterRequest>, res: Response): Promise<void> => {
   try {
-    const { username, email, password } = req.body;
-    
+    const { username, email, password, startPoint, endPoint } = req.body;
+
     // Check if user already exists
     const existingUser = await User.findOne({ 
       $or: [{ email }, { username }] 
@@ -199,7 +215,9 @@ export const register = async (req: Request<{}, {}, RegisterRequest>, res: Respo
     const user = new User({
       username,
       email,
-      passwordHash
+      passwordHash,
+      startPoint,
+      endPoint
     });
     
     const savedUser = await user.save();
