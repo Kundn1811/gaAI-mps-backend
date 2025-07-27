@@ -37,6 +37,8 @@ interface IPost extends Document {
   content: string;
   type: 'text' | 'image' | 'video' | 'mixed';
   media: IMediaFile[];
+  longitude?: number;
+  latitude?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -79,6 +81,9 @@ interface LoginRequest {
 interface CreatePostRequest {
   content: string;
   type?: 'text' | 'image' | 'video' | 'mixed';
+  media?: IMediaFile[];
+  latitude?: number;
+  longitude?: number;
 }
 
 interface VoteRequest {
@@ -112,6 +117,8 @@ const postSchema = new Schema<IPost>({
   content: { type: String, required: true },
   type: { type: String, enum: ['text', 'image', 'video', 'mixed'], default: 'text' },
   media: [mediaFileSchema],
+  longitude: { type: Number },
+  latitude: { type: Number },
 }, { 
   timestamps: true,
   versionKey: false 
@@ -248,7 +255,7 @@ export const login = async (req: Request<{}, {}, LoginRequest>, res: Response): 
   }
 };
 
-// Create Post (with file upload)
+// Create Post (with  file upload)
 export const post = async (req: AuthRequest, res: Response): Promise<void> => {
   const session = await mongoose.startSession();
   
