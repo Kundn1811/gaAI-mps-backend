@@ -27,6 +27,7 @@ interface IUser extends Document {
   passwordHash: string;
   startPoint: IGeoPoint;
   endPoint: IGeoPoint;
+  role?: 'user' | 'administrative';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -45,6 +46,7 @@ interface IPost extends Document {
   media: IMediaFile[];
   longitude?: number;
   latitude?: number;
+  role?: 'user' | 'administrative';
   createdAt: Date;
   updatedAt: Date;
 }
@@ -116,7 +118,8 @@ const userSchema = new Schema<IUser>({
   endPoint: {
     latitude: { type: Number, required: true },
     longitude: { type: Number, required: true }
-  }
+  },
+  role: { type: String, enum: ['user', 'administrative'], default: 'user' }
 }, { 
   timestamps: true,
   versionKey: false 
@@ -217,7 +220,8 @@ export const register = async (req: Request<{}, {}, RegisterRequest>, res: Respo
       email,
       passwordHash,
       startPoint,
-      endPoint
+      endPoint,
+      role: 'user'
     });
     
     const savedUser = await user.save();
@@ -254,7 +258,7 @@ export const login = async (req: Request<{}, {}, LoginRequest>, res: Response): 
     }
     
     const token = jwt.sign(
-      { userId: user._id.toString(), username: user.username },
+      { userId: user._id.toString(), username: user.username, role: user.role },
       process.env.JWT_SECRET!,
       { expiresIn: '24h' }
     );
@@ -264,7 +268,8 @@ export const login = async (req: Request<{}, {}, LoginRequest>, res: Response): 
       user: {
         id: user._id,
         username: user.username,
-        email: user.email
+        email: user.email,
+        role: user.role
       }
     });
   } catch (error) {
@@ -810,3 +815,97 @@ export const deletePost =  async (req: AuthRequest, res: Response): Promise<void
   }
 };
 
+
+
+// Haversine Formula to calculate distance between two points
+const haversineDistance = (lon1: number, lat1: number, lon2: number, lat2: number) => {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  
+  const R = 6371; // Radius of Earth in kilometers
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  
+  return R * c; // Distance in kilometers
+};
+
+// Controller to find posts within 1km radius of the given longitude and latitude
+export const getPostsByLocation = async (req: Request, res: Response): Promise<void> => {
+  const { longitude, latitude } = req.query;
+
+  // Validate longitude and latitude
+  if (!longitude || !latitude) {
+    res.status(400).json({ error: 'Longitude and Latitude are required' });
+    return;
+  }
+
+  const lon = parseFloat(longitude as string);
+  const lat = parseFloat(latitude as string);
+
+  // Validate that the longitude and latitude are valid numbers
+  if (isNaN(lon) || isNaN(lat)) {
+    res.status(400).json({ error: 'Invalid longitude or latitude' });
+    return;
+  }
+
+  try {
+    // Query to find posts within a 1km radius (1000 meters) from the given point using $geoWithin
+    // Ensure you have a 2dsphere index on [longitude, latitude] if you use a combined field
+    const posts = await Post.find({
+      longitude: { $ne: null },
+      latitude: { $ne: null },
+      $expr: {
+        $lte: [
+          {
+            $divide: [
+              {
+                $multiply: [
+                  {
+                    $acos: {
+                      $add: [
+                        {
+                          $multiply: [
+                            { $sin: { $degreesToRadians: "$latitude" } },
+                            Math.sin((lat * Math.PI) / 180)
+                          ]
+                        },
+                        {
+                          $multiply: [
+                            { $cos: { $degreesToRadians: "$latitude" } },
+                            Math.cos((lat * Math.PI) / 180),
+                            { $cos: { $subtract: [
+                              { $degreesToRadians: "$longitude" },
+                              (lon * Math.PI) / 180
+                            ] } }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  6371 // Earth radius in km
+                ]
+              },
+              1
+            ]
+          },
+          1 // 1km radius
+        ]
+      }
+    });
+
+    // If there are more than 5 posts, return them
+    if (posts.length > 5) {
+      res.status(200).json(posts);
+    } else {
+      res.status(404).json({ message: 'Not enough posts found within 1km radius' });
+    }
+  } catch (error) {
+    console.error('Error fetching posts:', error);
+    res.status(500).json({ error: 'Failed to fetch posts' });
+  }
+};
