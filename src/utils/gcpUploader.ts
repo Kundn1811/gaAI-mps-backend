@@ -5,9 +5,14 @@ import { Express } from 'express';
 
 dotenv.config();
 
-const serviceKeyPath = path.join(__dirname, '../service-account.json'); // adjust path as needed
+const serviceKeyPath = path.join(__dirname, '../../service-account.json'); // adjust path as needed
 
-const storage = new Storage({ keyFilename: serviceKeyPath });
+// const storage = new Storage({ keyFilename: serviceKeyPath });
+const storage = new Storage({
+  keyFilename: serviceKeyPath,
+  projectId: process.env.GCP_PROJECT_ID
+});
+
 
 const bucketName = process.env.GCP_BUCKET_NAME;
 if (!bucketName) {

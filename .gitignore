@@ -41,3 +41,4 @@ yarn-error.log*
 *.rpm
 *.msi
 *.apk
+service-account.json
