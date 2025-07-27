@@ -274,22 +274,74 @@ export const login = async (req: Request<{}, {}, LoginRequest>, res: Response): 
 };
 
 // Create Post (with  file upload)
+// export const post = async (req: AuthRequest, res: Response): Promise<void> => {
+//   const session = await mongoose.startSession();
+  
+//   try {
+//     session.startTransaction();
+    
+//     const { content, type = 'text' }: CreatePostRequest = req.body;
+//     const userId = req.user!.userId;
+    
+//     // Handle file uploads if any
+//     const media: IMediaFile[] = [];
+//     if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+//       for (const file of req.files) {
+//         const fileName = `posts/${Date.now()}-${file.originalname}`;
+//         const fileUrl = await uploadFileToGCP(file, fileName);
+        
+//         media.push({
+//           url: fileUrl,
+//           type: file.mimetype,
+//           fileName: file.originalname
+//         });
+//       }
+//     }
+    
+//     // Create post
+//     const post = new Post({
+//       userId: new Types.ObjectId(userId),
+//       content,
+//       type: media.length > 0 ? (media.length > 1 ? 'mixed' : (media[0].type.startsWith('image/') ? 'image' : 'video')) : type,
+//       media
+//     });
+    
+//     const savedPost = await post.save({ session });
+    
+//     await session.commitTransaction();
+    
+//     res.status(201).json({
+//       message: 'Post created successfully',
+//       postId: savedPost._id
+//     });
+    
+//   } catch (error) {
+//     await session.abortTransaction();
+//     console.error('Post creation error:', error);
+//     res.status(500).json({ error: 'Failed to create post' });
+//   } finally {
+//     await session.endSession();
+//   }
+// };
+
+
 export const post = async (req: AuthRequest, res: Response): Promise<void> => {
   const session = await mongoose.startSession();
-  
+
   try {
     session.startTransaction();
-    
+
+    // Destructure the post content and type from req.body
     const { content, type = 'text' }: CreatePostRequest = req.body;
     const userId = req.user!.userId;
-    
+
     // Handle file uploads if any
     const media: IMediaFile[] = [];
     if (req.files && Array.isArray(req.files) && req.files.length > 0) {
       for (const file of req.files) {
         const fileName = `posts/${Date.now()}-${file.originalname}`;
         const fileUrl = await uploadFileToGCP(file, fileName);
-        
+
         media.push({
           url: fileUrl,
           type: file.mimetype,
@@ -297,7 +349,7 @@ export const post = async (req: AuthRequest, res: Response): Promise<void> => {
         });
       }
     }
-    
+
     // Create post
     const post = new Post({
       userId: new Types.ObjectId(userId),
@@ -305,16 +357,16 @@ export const post = async (req: AuthRequest, res: Response): Promise<void> => {
       type: media.length > 0 ? (media.length > 1 ? 'mixed' : (media[0].type.startsWith('image/') ? 'image' : 'video')) : type,
       media
     });
-    
+
     const savedPost = await post.save({ session });
-    
+
     await session.commitTransaction();
-    
+
     res.status(201).json({
       message: 'Post created successfully',
       postId: savedPost._id
     });
-    
+
   } catch (error) {
     await session.abortTransaction();
     console.error('Post creation error:', error);
@@ -323,6 +375,7 @@ export const post = async (req: AuthRequest, res: Response): Promise<void> => {
     await session.endSession();
   }
 };
+
 
 // Get Posts Feed (with pagination)
 // export const getPost = async (req: AuthRequest, res: Response): Promise<void> => {
