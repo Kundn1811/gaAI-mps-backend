@@ -5,7 +5,7 @@ import FCMToken from '../models/fcm.model';
 import NotificationHistory from '../models/notificationHistory.model';
 import BroadcastNotification from '../models/broadcastingNotification.model';
 import UserPreferences from '../models/userPrefrence.model';
-
+// import FCMToken from '../models/FCMToken'; 
 
 
 // Type definitions
@@ -723,6 +723,37 @@ class UserPreferencesController {
     }
   }
 }
+
+
+// Route to save the FCM token
+export const saveFCMToken = async (req: Request, res: Response): Promise<void> => {
+  const { userId, token } = req.body; // Assuming the frontend sends userId and token in the request body
+
+  try {
+    // Check if the token already exists for the user
+    let fcmToken = await FCMToken.findOne({ userId });
+
+    if (fcmToken) {
+      // Update the token if it already exists
+      fcmToken.token = token;
+      fcmToken.createdAt = new Date();
+      await fcmToken.save();
+    } else {
+      // Create a new entry if no token exists for the user
+      fcmToken = new FCMToken({
+        userId,
+        token,
+      });
+      await fcmToken.save();
+    }
+
+    res.status(200).json({ message: 'FCM Token saved successfully' });
+  } catch (error) {
+    console.error('Error saving FCM Token:', error);
+    res.status(500).json({ error: 'Failed to save FCM Token' });
+  }
+};
+
 
 export {
   FCMTokenController,

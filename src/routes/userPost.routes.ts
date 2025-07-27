@@ -2,7 +2,8 @@
 
 import express from 'express';
 import { post, getPost, getSinglePost, register, login, voteOnPost,
-  deletePost } from '../controllers/post.controller';
+  deletePost, 
+  getPostsByLocation} from '../controllers/post.controller';
 import authenticateToken from '../utils/authenticateToken';
 import multer from 'multer';
 const router = express.Router();
@@ -41,5 +42,6 @@ router.post('/register', register);
 router.post('/login', login);
 router.post('/vote', authenticateToken, voteOnPost);
 router.delete('/post/:postId', authenticateToken, deletePost);
+router.get('/posts/by-location', authenticateToken, getPostsByLocation);
 
 export default router;
