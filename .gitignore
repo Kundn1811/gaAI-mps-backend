@@ -2,7 +2,6 @@ node_modules
 firebase-service-account.json
 *.txt
 *.log
-*.env
 *.env.local
 *.env.development
 *.env.production
