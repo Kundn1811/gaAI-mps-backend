@@ -307,147 +307,199 @@ export const post = async (req: AuthRequest, res: Response): Promise<void> => {
 };
 
 // Get Posts Feed (with pagination)
-export const getPost =  async (req: AuthRequest, res: Response): Promise<void> => {
+// export const getPost = async (req: AuthRequest, res: Response): Promise<void> => {
+//   try {
+//     const { page = '1', limit = '20', sortBy = 'createdAt' } = req.query;
+//     const userId = req.user!.userId;
+    
+//     // Validate and sanitize inputs
+//     const pageNum = Math.max(1, parseInt(page as string) || 1);
+//     const limitNum = Math.min(100, Math.max(1, parseInt(limit as string) || 20)); // Cap at 100
+//     const skip = (pageNum - 1) * limitNum;
+    
+//     // Validate sortBy parameter
+//     const validSortFields = ['createdAt', 'score'];
+//     const sortField = validSortFields.includes(sortBy as string) ? sortBy as string : 'createdAt';
+
+//     const pipeline: mongoose.PipelineStage[] = [
+//       // Lookup user information
+//       {
+//         $lookup: {
+//           from: 'users',
+//           localField: 'userId',
+//           foreignField: '_id',
+//           as: 'user',
+//           pipeline: [
+//             { $project: { username: 1 } } // Only get username
+//           ]
+//         }
+//       },
+//       { $unwind: '$user' },
+      
+//       // Lookup vote aggregations (more efficient)
+//       {
+//         $lookup: {
+//           from: 'votes',
+//           localField: '_id',
+//           foreignField: 'postId',
+//           as: 'voteData',
+//           pipeline: [
+//             {
+//               $group: {
+//                 _id: '$postId',
+//                 upvotes: {
+//                   $sum: { $cond: [{ $eq: ['$voteType', 'up'] }, 1, 0] }
+//                 },
+//                 downvotes: {
+//                   $sum: { $cond: [{ $eq: ['$voteType', 'down'] }, 1, 0] }
+//                 },
+//                 userVotes: {
+//                   $push: {
+//                     $cond: [
+//                       { $eq: ['$userId', new Types.ObjectId(userId)] },
+//                       '$voteType',
+//                       null
+//                     ]
+//                   }
+//                 }
+//               }
+//             }
+//           ]
+//         }
+//       },
+      
+//       // Add calculated fields
+//       {
+//         $addFields: {
+//           upvotes: { 
+//             $ifNull: [{ $arrayElemAt: ['$voteData.upvotes', 0] }, 0] 
+//           },
+//           downvotes: { 
+//             $ifNull: [{ $arrayElemAt: ['$voteData.downvotes', 0] }, 0] 
+//           },
+//           userUpvoted: {
+//             $in: ['up', { $arrayElemAt: ['$voteData.userVotes', 0] }]
+//           },
+//           userDownvoted: {
+//             $in: ['down', { $arrayElemAt: ['$voteData.userVotes', 0] }]
+//           }
+//         }
+//       },
+      
+//       // Add score field
+//       {
+//         $addFields: {
+//           score: { $subtract: ['$upvotes', '$downvotes'] }
+//         }
+//       }
+//     ];
+
+//     // Add sort stage
+//     if (sortField === 'score') {
+//       pipeline.push({ $sort: { score: -1, createdAt: -1 } });
+//     } else {
+//       pipeline.push({ $sort: { createdAt: -1 } });
+//     }
+
+//     // Fetch one extra record to determine hasMore
+//     pipeline.push({ $skip: skip });
+//     pipeline.push({ $limit: limitNum + 1 });
+
+//     // Project final fields
+//     pipeline.push({
+//       $project: {
+//         _id: 1,
+//         content: 1,
+//         type: 1,
+//         media: 1,
+//         createdAt: 1,
+//         updatedAt: 1,
+//         username: '$user.username',
+//         userId: '$user._id',
+//         upvotes: 1,
+//         downvotes: 1,
+//         score: 1,
+//         userUpvoted: 1,
+//         userDownvoted: 1
+//       }
+//     });
+
+//     const results = await Post.aggregate(pipeline);
+    
+//     // Correct hasMore logic
+//     const hasMore = results.length > limitNum;
+//     const posts = hasMore ? results.slice(0, limitNum) : results;
+
+//     res.json({
+//       posts,
+//       pagination: {
+//         page: pageNum,
+//         limit: limitNum,
+//         hasMore,
+//         total: hasMore ? undefined : skip + posts.length // Optional: only calculate total when on last page
+//       }
+//     });
+
+//   } catch (error) {
+//     console.error('Feed fetch error:', error);
+//     res.status(500).json({ error: 'Failed to fetch posts' });
+//   }
+// };
+
+export const getPost = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { page = '1', limit = '20', sortBy = 'createdAt' } = req.query;
-    const userId = req.user!.userId;
-    
-    const pageNum = parseInt(page as string);
-    const limitNum = parseInt(limit as string);
+    const { page = '1', limit = '20' } = req.query;
+    const pageNum = parseInt(page as string) || 1;
+    const limitNum = parseInt(limit as string) || 20;
     const skip = (pageNum - 1) * limitNum;
-    
-    // Build aggregation pipeline
-    const pipeline: mongoose.PipelineStage[] = [
-      // Lookup user information
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'userId',
-          foreignField: '_id',
-          as: 'user'
-        }
-      },
-      { $unwind: '$user' },
-      
-      // Lookup votes
-      {
-        $lookup: {
-          from: 'votes',
-          localField: '_id',
-          foreignField: 'postId',
-          as: 'votes'
-        }
-      },
-      
-      // Add calculated fields
-      {
-        $addFields: {
-          upvotes: {
-            $size: {
-              $filter: {
-                input: '$votes',
-                cond: { $eq: ['$$this.voteType', 'up'] }
-              }
-            }
-          },
-          downvotes: {
-            $size: {
-              $filter: {
-                input: '$votes',
-                cond: { $eq: ['$$this.voteType', 'down'] }
-              }
-            }
-          },
-          userUpvoted: {
-            $anyElementTrue: [
-              {
-                $map: {
-                  input: '$votes',
-                  as: 'vote',
-                  in: {
-                    $and: [
-                      { $eq: ['$$vote.userId', new Types.ObjectId(userId)] },
-                      { $eq: ['$$vote.voteType', 'up'] }
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          userDownvoted: {
-            $anyElementTrue: [
-              {
-                $map: {
-                  input: '$votes',
-                  as: 'vote',
-                  in: {
-                    $and: [
-                      { $eq: ['$$vote.userId', new Types.ObjectId(userId)] },
-                      { $eq: ['$$vote.voteType', 'down'] }
-                    ]
-                  }
-                }
-              }
-            ]
-          }
-        }
-      },
-      
-      // Add score field
-      {
-        $addFields: {
-          score: { $subtract: ['$upvotes', '$downvotes'] }
-        }
-      }
-    ];
 
-    // Add sort stage based on sortBy
-    if (sortBy === 'score') {
-      pipeline.push({ $sort: { score: -1, createdAt: -1 } });
-    } else {
-      pipeline.push({ $sort: { createdAt: -1 } });
-    }
+    // Simple version without aggregation first
+    const posts = await Post.find()
+      .populate('userId', 'username')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum + 1)
+      .lean();
 
-    // Pagination
-    pipeline.push({ $skip: skip });
-    pipeline.push({ $limit: limitNum });
+    const hasMore = posts.length > limitNum;
+    const finalPosts = hasMore ? posts.slice(0, limitNum) : posts;
 
-    // Project final fields
-    pipeline.push({
-      $project: {
-        _id: 1,
-        content: 1,
-        type: 1,
-        media: 1,
-        createdAt: 1,
-        updatedAt: 1,
-        username: '$user.username',
-        userId: '$user._id',
-        upvotes: 1,
-        downvotes: 1,
-        score: 1,
-        userUpvoted: 1,
-        userDownvoted: 1,
-        votes: 0,
-        user: 0
-      }
-    });
+    // Transform the data
+    const transformedPosts = finalPosts.map(post => ({
+      _id: post._id,
+      content: post.content,
+      type: post.type,
+      media: post.media,
+      createdAt: post.createdAt,
+      updatedAt: post.updatedAt,
+      username: typeof post.userId === 'object' && post.userId !== null && 'username' in post.userId
+        ? (post.userId as any).username
+        : 'Unknown',
+      userId: typeof post.userId === 'object' && post.userId !== null && '_id' in post.userId
+        ? (post.userId as any)._id
+        : post.userId,
+      upvotes: 0, // We'll add vote counting later
+      downvotes: 0,
+      score: 0,
+      userUpvoted: false,
+      userDownvoted: false
+    }));
 
-    const posts = await Post.aggregate(pipeline);
-
-    
     res.json({
-      posts,
+      posts: transformedPosts,
       pagination: {
         page: pageNum,
         limit: limitNum,
-        hasMore: posts.length === limitNum
+        hasMore
       }
     });
-    
-  } catch (error) {
+
+  } catch (error:any) {
     console.error('Feed fetch error:', error);
-    res.status(500).json({ error: 'Failed to fetch posts' });
+    res.status(500).json({ 
+      error: 'Failed to fetch posts',
+      message: error.message // Add this for debugging
+    });
   }
 };
 
